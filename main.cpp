@@ -106,7 +106,7 @@ int main(int argc, char* argv[]){
 				
 
 			} else if (events[i].events & (EPOLLRDHUP | EPOLL HUP | EPOLLERR)){
-				// disconnet or error events
+				// disconnect or error events
 				users[sockfd].close_conn();
 			} else if (events[i].events & EPOLLIN){
 				if (users[sockfd].read()) { //read all data
