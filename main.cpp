@@ -85,7 +85,7 @@ int main(int argc, char* argv[]){
 	while(1){ // main thread detects if there are events happening
 		int num = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1);
 		if (num < 0 and errno != EINTR){
-			printf("epoll fales\n");
+			printf("epoll fails\n");
 			break;
 		} 
 		// traverse event array
