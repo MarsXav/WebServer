@@ -60,9 +60,34 @@ void http_conn::close_conn(){
 }
 
 bool http_conn::read(){
-	printf("read all data at once\n");
+    if (m_read_ind >= READ_BUFFER_SIZE) {
+        return false;
+    }
+    // bytes read
+    int bytes_read = 0;
+    while(1){
+        bytes_read = recv(m_sockfd, m_read_buf + m_read_ind, READ_BUFFER_SIZE - m_read_ind);
+        if (bytes_read == -1){
+            if (errno == EAGAIN || errno == EWOULDBLOCK){
+                //no data returned
+                break;
+            }
+            return false;
+        } else if (bytes_read == 0){
+            // connection closed
+            return false;
+        }
+        m_read_ind += bytes_read;
+    }
+    printf("data received: %s", m_read_buf);
 	return true;
 }
+HTTP_CODE http_conn::process_read() {//parse HTTP requests
+    return NO_REQUEST;
+}
+HTTP_CODE http_conn::parse_request_line(char *text); //parse HTTP request line
+HTTP_CODE http_conn::parse_headers(char *text); //parse HTTP header
+HTTP_CODE http_conn::parse_content(char *text);
 
 bool http_conn::write(){
 	printf("write all data at once\n");
@@ -72,6 +97,12 @@ bool http_conn::write(){
 // envoked by working thread in the thread poll, which is the entrance function of HTTP requests
 void http_conn::process(){
 	// decode HTTP requests
-	printf("pass request, creating response\n");
+    HTTP_CODE read_ret = process_read();
+    if (read_ret  == NO_REQUEST) {
+        modfd(m_epollfd, m_sockfd, EPOLLIN);
+    }
+
+
+	printf("parse request, creating response\n");
 	
 }
