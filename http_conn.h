@@ -61,14 +61,37 @@ public:
 
     LINE_STATUS parse_line();
 
+    bool process_write(HTTP_CODE ret);
 
 private:
 	int m_sockfd; // the HTTP socket connects;
-	sockaddr_in m_address; // socket adderess used for communication
+	sockaddr_in m_address; // socket address used for communication
 
     char m_read_buf[READ_BUFFER_SIZE];
     int m_read_ind; //mark the index of the position of the client data
 
+    int m_checked_index; // the current pointer to the character in the buffer
+    int m_start_line; // the initial position of the parsing line
+
+    char *m_url; //file name of the requested file
+    char *m_version; //protocol version, which only supports HTTP1.1
+    METHOD m_method;
+    char *m_host;//host name
+    bool m_linger; //identify if HTTP request keeps the connection
+
+    int m_content_length;
+
+    CHECK_STATE m_check_state; // the current status of the main state machine
+
+    void init(); //initialise other connection data
+
+    void unmap();
+
+    char* get_line() {
+        return m_read_buf + m_start_line;
+    }
+
+    HTTP_CODE do_request();
 
 }
 
