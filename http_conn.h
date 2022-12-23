@@ -63,6 +63,15 @@ public:
 
     bool process_write(HTTP_CODE ret);
 
+    bool add_response(const char* format, ...);
+    bool add_status_line(int status,  const char* title);
+    bool add_headers(int content_len);
+    bool add_content_length(int content_len);
+    bool add_content_type();
+    bool add_linger();
+    bool add_blank_line();
+    bool add_content(const char *content);
+
 private:
 	int m_sockfd; // the HTTP socket connects;
 	sockaddr_in m_address; // socket address used for communication
@@ -79,6 +88,13 @@ private:
     char *m_host;//host name
     bool m_linger; //identify if HTTP request keeps the connection
 
+    char m_write_buf[WRITE_BUFFER_SIZE]; //write buffer
+    int m_write_ind; // bytes of the data pending to be sent
+    char *m_file_address; //the address of the mapped file
+    struct stat m_file_state; //status of the target file
+    struct iovec m_iv[2];
+    int m_iv_count;
+
     int m_content_length;
 
     CHECK_STATE m_check_state; // the current status of the main state machine
@@ -92,6 +108,8 @@ private:
     }
 
     HTTP_CODE do_request();
+
+
 
 }
 

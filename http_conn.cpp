@@ -4,6 +4,15 @@
 
 const char* doc_root = "/home/mars/WebServer/resources";
 
+const char* ok_200_title = "OK";
+const char* error_400_title = "Bad Request";
+const char* error_400_form = "Your request has bad syntax or is inherently impossible";
+const char* error_403_title = "Forbidden";
+const char* error_404_title = "Not Found";
+const char* error_404_form = "The requested file wes not found on this server";
+const char* error_500_title = "Internal Error";
+const char* error_500_form = "There was an unusual problem serving the requested file";
+
 // set new fd nonblock
 void setnonblock(int fd){
 	int old_flag = fcntl(fd, F_GETFL);
@@ -288,8 +297,77 @@ void http_conn::unmap() {
     }
 }
 
+bool http_conn::add_response(const char *format, ...) { //write data to the write buffer
+    if (m_write_ind >= WRITE_BUFFER_SIZE){
+        return false;
+    }
+    va_list arg_list;
+    va_start(arg_list, format);
+    int len = vsnprintf(m_write_buf + m_write_ind, WRITE_BUFFER_SIZE - 1 - m_write_ind, format, arg_list);
+    if (len >= WRITE_BUFFER_SIZE - 1 - m_write_ind) return false;
+    m_write_ind += len;
+    va_end(arg_list);
+    return true;
+}
+bool http_conn::add_status_line(int status, const char *title) {
+    return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
+}
+bool http_conn::add_headers(int content_len) {
+    add_content_length(content_len);
+    add_content_type();
+    add_linger();
+    add_blank_line();
+}
+bool http_conn::add_content_length(int content_len) {
+    return add_response("Content_Length: %d\r\n", content_len);
+}
+bool http_conn::add_content_type(){
+    return add_reponse("Content-Type: %s\r\n", "text/html");
+}
+bool http_conn::add_linger() {
+    return add_response("Connection: %s\r\n", m_linger == true ? "keepalive" : "close");
+}
+bool http_conn::add_blank_line() {
+    return add_response("%s", "\r\n");
+}
+
 bool http_conn::write(){
-	printf("write all data at once\n");
+    int temp = 0;
+    int bytes_have_sent = 0;
+    int bytes_to_send = m_write_ind;
+
+    if (bytes_to_send == 0) {
+        modfd(m_epollfd, m_sockfd, EPOLLIN);
+        init();
+        return true;
+    }
+
+    while(1){
+        temp = writev(m_sockfd, m_iv, m_iv_count); // writev writes data discretely
+        if (temp <= -1) {
+            if (errono == EAGAIN){
+                modfd(m_epollfd, m_sockfd, EPOLLOUT);
+                return true;
+            }
+            unmap();
+            return false;
+        }
+        bytes_to_send -= temp;
+        bytes_have_sent += temp;
+        if (bytes_to_send <= bytes_have_sent){
+            unmap();
+            if (m_linger){
+                init();
+                modfd(m_epollfd, m_sockfd, EPOLLIN);
+                return true;
+            } else {
+                modfd(m_epollfd, m_sockfd, EPOLLIN);
+                return false;
+            }
+        }
+    }
+
+
 	return true;
 }
 
