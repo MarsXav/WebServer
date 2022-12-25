@@ -3,18 +3,18 @@
 
 #include <pthread.h>
 #include <semaphore.h>
-#include <exeption.h>
+#include <exception>
 
 // thread synchronisation
 // mutex class
 class locker{
 public:
 	locker(){
-		if (pthread_mutex_init(&m_mutex, NULL)!=0){
-			throw std::exeption();
+		if (pthread_mutex_init(&m_mutex, nullptr)!=0){
+			throw std::exception();
 		}
 	}
-	~locker{
+	~locker(){
 		pthread_mutex_destroy(&m_mutex);
 	}
 	bool lock(){
@@ -29,7 +29,7 @@ public:
 	}
 
 private:
-	pthread_mutex_t m_mutex;
+	pthread_mutex_t m_mutex{};
 };
 
 // conditional variables
@@ -47,7 +47,7 @@ public:
 		return pthread_cond_wait(&m_cond, mutex) == 0;
 	}
 	bool timewait(pthread_mutex_t *mutex, struct timespec t){
-		return pthread_cond_timewait(&m_cond, mutex) == 0;
+		return pthread_cond_timedwait(&m_cond, mutex, &t) == 0;
 	}
 	bool signal(){
 		return pthread_cond_signal(&m_cond) == 0;
@@ -56,7 +56,7 @@ public:
 		return pthread_cond_broadcast(&m_cond) == 0;
 	}
 private:	
-	pthread_cond_t m_cond;
+	pthread_cond_t m_cond{};
  };
 
 //semaphore
@@ -83,7 +83,7 @@ class sem{
 		}
 
 	private:
-		sem_t m_sem;
+		sem_t m_sem{};
 
 };
 

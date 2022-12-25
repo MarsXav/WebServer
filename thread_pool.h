@@ -3,41 +3,42 @@
 
 #include <pthread.h>
 #include <cstdio>
-#include <exception.h>
+#include <exception>
 #include <list>
 #include "locker.h"
 
-// thread pool class, define as template class is to ensure the code reuse, template parameter T is task class
+// thread pool class, define as template class is for reuse purposes template parameter T is task class
 template<typename T>
 class threadpool {
 public:
 	threadpool(int thread_number = 8, int max_requests = 10000);
 	~threadpool();
 	bool append(T* request);
+
 private:
-	static void* work(void* arg);
+	static void* worker(void* arg);
 	void run();
 
 private:
-	// thread amount
+	// thread number
 	int m_thread_number;
 	// thread container, size is m_thread_number
 	pthread_t *m_threads;
 	//request queue, maximum num of requests
 	int m_max_requests;
-	// request list 
+	// request queue
 	std::list<T*> m_workqueue;
 	// mutex
-	locker m_mqueuelocker;
+	locker m_queuelocker;
 	// semaphore, identify if there's any tasks to be handled
 	sem m_queuestat;
-	// if determinate thread
+	// if terminate thread
 	bool m_stop;
 };
 
 template<typename T>
-threadpool<T>::threadpool(int thread_number, int max_requests) :
-	m_thread_number(thread_number), m_max_request(max_requests),
+threadpool<T>::threadpool(int thread_number, int max_requests) : //initialise members
+	m_thread_number(thread_number), m_max_requests(max_requests),
 	m_stop(false), m_threads(NULL) {
 		if ((thread_number <= 0) or (max_requests <= 0)) {
 			throw std::exception();
@@ -50,12 +51,12 @@ threadpool<T>::threadpool(int thread_number, int max_requests) :
 		for (int i = 0; i < thread_number; i++){
 			printf("create the %dth thread\n", i);	
 
-			int ret = pthread_create(m_threads + i, NULL, work, this);
+			int ret = pthread_create(m_threads + i, NULL, worker, this);
 			if (ret != 0){
 				delete [] m_threads;
 				throw std::exception;
 			}
-			if (pthread_detach(m_thread[i])){
+			if (pthread_detach(m_threads[i])){
 				delete [] m_threads;
 				throw std::exception;
 			}

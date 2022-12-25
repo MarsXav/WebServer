@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <signal.h>
+#include <libgen.h>
 #include "locker.h"
 #include "threadpool.h"
 #include "http_conn.h"
@@ -55,7 +56,7 @@ int main(int argc, char* argv[]){
 	http_conn *users = new http_conn[MAX_FD];
 	
 	// create a socket 
-	int listenfd = socked(PF_INET, SOCK_STREAM, 0);
+	int listenfd = socket(PF_INET, SOCK_STREAM, 0);
 
 	// set port reuse
 	int reuse = 1;
