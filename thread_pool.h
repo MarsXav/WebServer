@@ -47,18 +47,20 @@ threadpool<T>::threadpool(int thread_number, int max_requests) : //initialise me
 		if (!m_threads){
 			throw std::exception();
 		}
-		//create thread_Number threads and set them as thread_detach
+		//create (thread_number) of threads and set them as thread_detach
 		for (int i = 0; i < thread_number; i++){
 			printf("create the %dth thread\n", i);	
 
+            // worker function is a static member, which does not have access to non-static members
+            // arg is passed to worker so that worker may access the threadpool object
 			int ret = pthread_create(m_threads + i, NULL, worker, this);
 			if (ret != 0){
 				delete [] m_threads;
-				throw std::exception;
+				throw std::exception();
 			}
-			if (pthread_detach(m_threads[i])){
+			if (pthread_detach(m_threads[i])){ // if failed to detach, delete the thread
 				delete [] m_threads;
-				throw std::exception;
+				throw std::exception();
 			}
 		}
 	}
@@ -66,7 +68,7 @@ threadpool<T>::threadpool(int thread_number, int max_requests) : //initialise me
 template<typename T> 
 threadpool<T>::~threadpool(){
 	delete[] m_threads;
-	m_stop = true;
+	m_stop = true; // terminates the thread
 }
 
 template<typename T>
@@ -93,7 +95,7 @@ void* threadpool<T>::worker(void* arg){
 template<typename T>
 void threadpool<T>::run(){
 	while(!m_stop){
-		m_queuestat.wait();
+		m_queuestat.wait(); //use semaphore to detect if there are tasks to be handled
 		m_queuelocker.lock();
 		if (m_workqueue.empty()){
 			m_queuelocker.unlock();

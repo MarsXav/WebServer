@@ -78,7 +78,7 @@ class sem{
 		bool wait(){
 			return sem_wait(&m_sem) == 0;
 		}
-		bool post(){
+		bool post(){ //unlock a semaphore
 			return sem_post(&m_sem) == 0;		
 		}
 
