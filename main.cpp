@@ -54,7 +54,7 @@ int main(int argc, char* argv[]){
 	}
 
 	// create an array to store all client's information
-	http_conn *users = new http_conn[MAX_FD];
+	auto *users = new http_conn[MAX_FD];
 	
 	// create a socket 
 	int listenfd = socket(PF_INET, SOCK_STREAM, 0);
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]){
 	setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
 	//bind
-	struct sockaddr_in address;
+	struct sockaddr_in address{};
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = INADDR_ANY;
 	address.sin_port = htons(port);
@@ -96,7 +96,7 @@ int main(int argc, char* argv[]){
 		for (int i =0 ; i < num; i++){
 			int sockfd = events[i].data.fd;
 			if (sockfd == listenfd){ // clients connects
-				struct sockaddr_in client_address;
+				struct sockaddr_in client_address{};
 				socklen_t client_addrlen = sizeof(client_address);
                 // accept
                 int connfd = accept(listenfd, (struct sockaddr*)&client_address, &client_addrlen);

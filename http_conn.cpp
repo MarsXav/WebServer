@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <sys/epoll.h>
 
-const char* doc_root = "/home/mars/Desktop/WebServer/resources";
+const char* doc_root = "/home/mars/Desktop/WebServer/resources"; // root file
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
 const char* error_400_form = "Your request has bad syntax or is inherently impossible";
@@ -16,10 +16,11 @@ int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
 
 // set new fd nonblock
-void setnonblock(int fd){
+int setnonblock(int fd){
 	int old_flag = fcntl(fd, F_GETFL);
 	int new_flag = old_flag | O_NONBLOCK;
 	fcntl(fd, F_SETFL, new_flag);
+    return old_flag;
 }
 
 // add fds needs to be listened to epoll
@@ -43,9 +44,10 @@ void removefd(int epollfd, int fd){
 void modfd(int epollfd, int fd, int ev){
 	epoll_event event{};
 	event.data.fd = fd;
-	event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
+	event.events = ev | EPOLLONESHOT | EPOLLRDHUP; // | EPOLLET;
 	epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }
+
 
 void http_conn::init(int sockfd, const sockaddr_in &addr) {//initialise new accepted connections
 	m_sockfd = sockfd; // for later handling
@@ -54,7 +56,7 @@ void http_conn::init(int sockfd, const sockaddr_in &addr) {//initialise new acce
 	int reuse = 1;
 	setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 	// add to the epoll entity
-	addfd(m_epollfd, m_sockfd, true);
+	addfd(m_epollfd, sockfd, true);
 	m_user_count++; //total users add 1
     init();
 }
@@ -67,12 +69,14 @@ void http_conn::init(){
     m_start_line = 0;
     m_read_ind = 0;
     m_method = GET;
-    m_url = 0;
-    m_version = 0;
+    m_url = nullptr;
+    m_version = nullptr;
     m_linger = false;
-    m_host = 0;
+    m_host = nullptr;
     m_content_length = 0;
     bzero(m_read_buf, READ_BUFFER_SIZE); //clear the read buffer
+    bzero(m_write_buf, READ_BUFFER_SIZE);
+    bzero(m_real_file, FILENAME_LEN);
 }
 
 void http_conn::close_conn(){
@@ -103,7 +107,6 @@ bool http_conn::read(){ //nonblock read, read data nonstop until no data remains
         }
         m_read_ind += bytes_read;
     }
-    printf("data received: %s\n", m_read_buf);
 	return true;
 }
 
@@ -137,6 +140,7 @@ http_conn::HTTP_CODE http_conn::process_read() {//parse HTTP requests
                 } else if (ret == GET_REQUEST){
                     return do_request(); //parsing content
                 }
+                break;
             }
             case CHECK_STATE_CONTENT:
             {
@@ -160,6 +164,7 @@ http_conn::HTTP_CODE http_conn::process_read() {//parse HTTP requests
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text) { //parse HTTP request line, obtain request method, URL and HTTP version
     // format: text = GET /index.html HTTP/1.1
     m_url = strpbrk(text, " \t"); //search a pointer which points to the first occurrence of the string the second param points to
+    if (!m_url) return BAD_REQUEST;
     *m_url++ = '\0'; // text = GET\0/index.html HTTP/1.1
     char *method = text;
     if (strcasecmp(method, "GET") == 0) { //compares two strings
@@ -169,12 +174,10 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text) { //parse HTTP re
     }
     // m_url = index.html HTTP/1.1
     m_version = strpbrk(m_url, " \t"); //m_version = HTTP/1.1
-    if (!m_version){
-        return BAD_REQUEST;
-    }
+    if (!m_version) return BAD_REQUEST;
     // m_url = /index.html\0HTTP/1.1
     *m_version++ = '\0';
-    if (strcasecmp(m_version, "HTTP/1.1") == 0) {
+    if (strcasecmp(m_version, "HTTP/1.1") != 0) {
         return BAD_REQUEST;
     }
     if (strncasecmp(m_url, "http://", 7) == 0){
@@ -253,7 +256,7 @@ http_conn::LINE_STATUS http_conn::parse_line(){ //parsing by detecting \r,\n
             return LINE_BAD;
         }
     }
-    return LINE_OK;
+    return LINE_OPEN;
 }
 
 http_conn::HTTP_CODE http_conn::do_request(){
@@ -346,15 +349,15 @@ bool http_conn::write(){ //nonblock write
     while(true){
         temp = writev(m_sockfd, m_iv, m_iv_count); // writev writes data discretely
         if (temp <= -1) {
-            if (errno == EAGAIN){
+            if (errno == EAGAIN){ // if TCP write buffer doesn't have space, then wait for the next EPOLLOUT event
                 modfd(m_epollfd, m_sockfd, EPOLLOUT);
                 return true;
             }
             unmap();
             return false;
         }
-        bytes_have_sent += temp;
         bytes_to_send -= temp;
+        bytes_have_sent += temp;
         if (bytes_have_sent >= m_iv[0].iov_len){
             m_iv[0].iov_len = 0;
             m_iv[1].iov_base = m_file_address + (bytes_have_sent - m_write_ind);
@@ -374,7 +377,6 @@ bool http_conn::write(){ //nonblock write
             }
         }
     }
-	return true;
 }
 
 bool http_conn::process_write(HTTP_CODE ret) {
