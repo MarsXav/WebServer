@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <sys/epoll.h>
 
-const char* doc_root = "/home/mars/WebServer/resources";
+const char* doc_root = "/home/mars/Desktop/WebServer/resources";
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
 const char* error_400_form = "Your request has bad syntax or is inherently impossible";
@@ -60,6 +60,8 @@ void http_conn::init(int sockfd, const sockaddr_in &addr) {//initialise new acce
 }
 
 void http_conn::init(){
+    bytes_have_sent = 0;
+    bytes_to_send = 0;
     m_check_state = CHECK_STATE_REQUESTLINE; //initial state is set as parsing first request line
     m_checked_index = 0;
     m_start_line = 0;
@@ -86,7 +88,7 @@ bool http_conn::read(){ //nonblock read, read data nonstop until no data remains
         return false;
     }
     // bytes read
-    int bytes_read = 0;
+    ssize_t bytes_read = 0;
     while(true){
         bytes_read = recv(m_sockfd, m_read_buf+m_read_ind, READ_BUFFER_SIZE-m_read_ind, 0);
         if (bytes_read == -1){
@@ -189,7 +191,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text) { //parse HTTP re
 http_conn::HTTP_CODE http_conn::parse_headers(char *text) {//parse HTTP header
     if (text[0] == '\0') { //if empty line detected, meaning that the header is finished parsing
         if (m_content_length != 0){
-            // if HTTP request has information body, m_content_length bytes of information needs to be read
+            // if HTTP request has information body, (m_content_length) bytes of information needs to be read
             // state of the state machine converts to CHECK_STATE_CONTENT
             m_check_state = CHECK_STATE_CONTENT;
             return NO_REQUEST;
@@ -197,7 +199,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text) {//parse HTTP header
         //else we have obtained a complete HTTP request
         return GET_REQUEST;
     } else if (strncasecmp(text, "Connection:", 11) == 0){
-        // paring Connection header section, Connection: keep-alive
+        // paring "Connection" header section
         text += 11;
         text += strspn(text, " \t");
         if (strcasecmp(text, "keep-alive") == 0) {
@@ -255,12 +257,12 @@ http_conn::LINE_STATUS http_conn::parse_line(){ //parsing by detecting \r,\n
 }
 
 http_conn::HTTP_CODE http_conn::do_request(){
-    // when we obtain a complete and correct HTTP request, we analyse the target file attributes
+    // when we obtain a complete and correct HTTP request, we parse the target file attributes
     // if the target file exists and readable for all users and not the directory, use mmap to map the memory address to m_file_address
     // a network resource will be accessed
     strcpy(m_real_file, doc_root);
-    int len = strlen(doc_root);
-    strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+    size_t len = strlen(doc_root);
+    strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1); // join m_url to m_real_file
     // obtain m_real_file state information, -1 on fail, 0 on success
     if (stat(m_real_file, &m_file_stat) < 0){
         return NO_RESOURCE;
@@ -269,12 +271,13 @@ http_conn::HTTP_CODE http_conn::do_request(){
     if (!(m_file_stat.st_mode & S_IROTH)) {
         return FORBIDDEN_REQUEST;
     }
-    if (S_ISDIR(m_file_stat.st_mode)){ //identify if is a directory
+    //identify if is a directory
+    if (S_ISDIR(m_file_stat.st_mode)){
         return BAD_REQUEST;
     }
     int fd = open(m_real_file, O_RDONLY);
     //create a mmap
-    m_file_address = (char*)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd);
+    m_file_address = (char*)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
     return FILE_REQUEST;
 }
@@ -283,81 +286,94 @@ http_conn::HTTP_CODE http_conn::do_request(){
 void http_conn::unmap() {
     if (m_file_address){
         munmap(m_file_address, m_file_stat.st_size);
-        m_file_address = 0;
+        m_file_address = nullptr;
     }
 }
 
-bool http_conn::add_response(const char *format, ...) { //write data to the write buffer
+bool http_conn::add_response(const char *format, ...) { //write data to the write buffer(m_write_buf)
     if (m_write_ind >= WRITE_BUFFER_SIZE){
         return false;
     }
     va_list arg_list;
     va_start(arg_list, format);
+    //
     int len = vsnprintf(m_write_buf + m_write_ind, WRITE_BUFFER_SIZE - 1 - m_write_ind, format, arg_list);
     if (len >= WRITE_BUFFER_SIZE - 1 - m_write_ind) return false;
     m_write_ind += len;
     va_end(arg_list);
     return true;
 }
+
 bool http_conn::add_status_line(int status, const char *title) {
     return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
 }
-bool http_conn::add_headers(int content_len) {
+
+bool http_conn::add_headers(size_t content_len) {
     add_content_length(content_len);
     add_content_type();
     add_linger();
     add_blank_line();
+    return true;
 }
+
 bool http_conn::add_content_length(int content_len) {
     return add_response("Content_Length: %d\r\n", content_len);
 }
+
 bool http_conn::add_content_type(){
-    return add_reponse("Content-Type: %s\r\n", "text/html");
+    return add_response("Content-Type: %s\r\n", "text/html");
 }
+
 bool http_conn::add_linger() {
-    return add_response("Connection: %s\r\n", m_linger == true ? "keepalive" : "close");
+    return add_response("Connection: %s\r\n", m_linger ? "keepalive" : "close");
 }
+
 bool http_conn::add_blank_line() {
     return add_response("%s", "\r\n");
 }
 
-bool http_conn::write(){ //nonblock write
-    int temp = 0;
-    int bytes_have_sent = 0;
-    int bytes_to_send = m_write_ind;
+bool http_conn::add_content(const char *content) {
+    return add_response("%s", content);
+}
 
+bool http_conn::write(){ //nonblock write
+    ssize_t temp = 0;
     if (bytes_to_send == 0) {
         modfd(m_epollfd, m_sockfd, EPOLLIN);
         init();
         return true;
     }
-
-    while(1){
+    while(true){
         temp = writev(m_sockfd, m_iv, m_iv_count); // writev writes data discretely
         if (temp <= -1) {
-            if (errono == EAGAIN){
+            if (errno == EAGAIN){
                 modfd(m_epollfd, m_sockfd, EPOLLOUT);
                 return true;
             }
             unmap();
             return false;
         }
-        bytes_to_send -= temp;
         bytes_have_sent += temp;
-        if (bytes_to_send <= bytes_have_sent){
+        bytes_to_send -= temp;
+        if (bytes_have_sent >= m_iv[0].iov_len){
+            m_iv[0].iov_len = 0;
+            m_iv[1].iov_base = m_file_address + (bytes_have_sent - m_write_ind);
+            m_iv[1].iov_len = bytes_to_send;
+        } else {
+            m_iv[0].iov_base = m_write_buf + bytes_have_sent;
+            m_iv[0].iov_len = m_iv[0].iov_len - temp;
+        }
+        if(bytes_to_send <= 0){
             unmap();
-            if (m_linger){
+            modfd(m_epollfd, m_sockfd, EPOLLIN);
+            if (m_linger) {
                 init();
-                modfd(m_epollfd, m_sockfd, EPOLLIN);
                 return true;
             } else {
-                modfd(m_epollfd, m_sockfd, EPOLLIN);
                 return false;
             }
         }
     }
-
-
 	return true;
 }
 
@@ -399,10 +415,16 @@ bool http_conn::process_write(HTTP_CODE ret) {
             m_iv[1].iov_base = m_file_address;
             m_iv[1].iov_len = m_file_stat.st_size;
             m_iv_count = 2;
+            bytes_to_send = m_write_ind + m_file_stat.st_size;
             return true;
         default:
             return false;
     }
+    m_iv[0].iov_base = m_write_buf;
+    m_iv[0].iov_len = m_write_ind;
+    m_iv_count = 1;
+    bytes_to_send = m_write_ind;
+    return false;
 }
 
 // evoked by working thread in the thread poll, which is the entrance function of HTTP requests
@@ -413,8 +435,8 @@ void http_conn::process(){
         modfd(m_epollfd, m_sockfd, EPOLLIN);
     }
     // generate response
-    printf("parse request, creating response\n");
     bool write_ret = process_write(read_ret);
     if (!write_ret) close_conn();
+    // we used EPOLLONESHOT event, so we would have to modify the write permission every time
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }

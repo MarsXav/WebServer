@@ -23,6 +23,7 @@ public:
 
     static const int READ_BUFFER_SIZE = 2048; //read buffer size
     static const int WRITE_BUFFER_SIZE = 2048; // write buffer size
+    static const int FILENAME_LEN = 200; // maximum length of the file name
 
     // HTTP request methods, only GET is used in this project
     enum METHOD {GET = 0, POST, HEAD, PUT, DELETE, TRACE, OPTIONS, CONNECT};
@@ -65,7 +66,7 @@ public:
 
     bool add_response(const char* format, ...);
     bool add_status_line(int status,  const char* title);
-    bool add_headers(int content_len);
+    bool add_headers(size_t content_len);
     bool add_content_length(int content_len);
     bool add_content_type();
     bool add_linger();
@@ -91,9 +92,12 @@ private:
     char m_write_buf[WRITE_BUFFER_SIZE]; //write buffer
     int m_write_ind; // bytes of the data pending to be sent
     char *m_file_address; //the address of the mapped file
-    struct stat m_file_state; //status of the target file
+    struct stat m_file_stat; //status of the target file
     struct iovec m_iv[2];
     int m_iv_count;
+
+    int bytes_to_send;
+    int bytes_have_sent;
 
     int m_content_length;
 
@@ -107,6 +111,7 @@ private:
 
     HTTP_CODE do_request();
 
+    char m_real_file[200];
 
 
 };
